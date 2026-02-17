@@ -1,0 +1,28 @@
+python-dotenv>=1.0
+requests>=2.31
+rich>=13.7
+pydantic>=2.6
+
+# LangChain core
+langchain>=0.2.10
+langchain-community>=0.2.10
+langchain-openai>=0.1.20
+langchain-text-splitters>=0.2.2
+
+# Optional workflow lib
+langgraph>=0.2.35
+
+# RAG stack
+chromadb>=0.5.5
+pypdf>=4.2.0
+unstructured>=0.15.7
+tiktoken>=0.7.0
+faiss-cpu>=1.8.0
+rank-bm25>=0.2.2
+lark>=1.1.9
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+python-dateutil>=2.9.0
+reportlab>=4.0.0
+pillow>=10.0.0

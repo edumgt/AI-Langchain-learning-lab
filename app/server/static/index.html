@@ -1,0 +1,107 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <title>ArtBiz LangChain E2E</title>
+    <style>
+      body { font-family: system-ui, -apple-system, sans-serif; margin: 24px; max-width: 980px; }
+      textarea { width: 100%; height: 100px; }
+      pre { background:#f4f4f4; padding:12px; overflow:auto; }
+      .row { display:flex; gap:12px; align-items:center; }
+      select, button, input { padding:8px; }
+      .hint { color:#666; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <h1>ArtBiz LangChain E2E</h1>
+    <p class="hint">/chat API를 호출하는 초간단 클라이언트(학습용)</p>
+    <div class="row">
+      <label>mode</label>
+      <select id="mode">
+        <option value="rag">rag</option>
+        <option value="chat">chat</option>
+        <option value="plan">plan</option>
+      </select>
+      <label>top_k</label>
+      <input id="topk" type="number" value="4" style="width:80px"/>
+      <button onclick="send()">/chat</button>
+      <button onclick="selfq()">/rag/self-query</button>
+      <button onclick="proposal()">/artbiz/proposal</button>
+    </div>
+    <p></p>
+    <textarea id="q">예산 3천만원으로 2주 관객개발 캠페인 실행 계획</textarea>
+    <h3>Docs Upload</h3>
+<input id="files" type="file" multiple />
+<button onclick="upload()">Upload</button>
+<pre id="upload_out"></pre>
+<h3>Proposal</h3>
+<div class="row">
+<input id="sponsor" placeholder="sponsor" value="ACME Corp"/>
+<input id="campaign" placeholder="campaign" value="Spring Festival" style="width:260px"/>
+<input id="budget" type="number" value="30000000" style="width:140px"/>
+<button onclick="proposal()">Generate Proposal</button>
+</div>
+<pre id="proposal_out"></pre>
+<h3>Response</h3>
+    <pre id="out"></pre>
+
+    <script>
+      async function send(){
+        const q = document.getElementById("q").value;
+        const mode = document.getElementById("mode").value;
+        const topk = parseInt(document.getElementById("topk").value || "0", 10);
+        const body = { q, mode, top_k: topk || null };
+        const res = await fetch("/chat", {
+          method:"POST",
+          headers:{ "Content-Type":"application/json" },
+          body: JSON.stringify(body),
+        });
+        document.getElementById("out").textContent = JSON.stringify(await res.json(), null, 2);
+      }
+    async function upload(){
+  const files = document.getElementById('files').files;
+  const fd = new FormData();
+  for(const f of files){ fd.append('files', f); }
+  const res = await fetch('/docs/upload', { method:'POST', body: fd });
+  document.getElementById('upload_out').textContent = JSON.stringify(await res.json(), null, 2);
+}
+async function proposal(){
+  const sponsor = document.getElementById('sponsor').value;
+  const campaign = document.getElementById('campaign').value;
+  const budget = parseInt(document.getElementById('budget').value || '0', 10);
+  const body = { sponsor_name: sponsor, campaign_title: campaign, org_type:'festival', budget_target_krw: budget, constraints: [] };
+  const res = await fetch('/artbiz/proposal', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  document.getElementById('proposal_out').textContent = JSON.stringify(await res.json(), null, 2);
+}
+
+  async function selfq(){
+    const q = document.getElementById("q").value;
+    const res = await fetch("/rag/self-query", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ q, top_k: 4 }),
+    });
+    document.getElementById("out").textContent = JSON.stringify(await res.json(), null, 2);
+  }
+
+  async function proposal(){
+    const q = document.getElementById("q").value;
+    const res = await fetch("/artbiz/proposal", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({
+        sponsor_name: "Sample Sponsor",
+        campaign_title: q,
+        budget_total_krw: 30000000,
+        weeks: 2,
+            save: true,
+            format: "both",
+        org_type: "general",
+        auto_approve: true
+      }),
+    });
+    document.getElementById("out").textContent = JSON.stringify(await res.json(), null, 2);
+  }
+</script>
+  </body>
+</html>
