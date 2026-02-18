@@ -12,6 +12,7 @@ from langgraph.graph import StateGraph, END
 
 from app.core.llm_factory import build_chat_model
 from app.utils.console import header
+from catalog.langgraph._viz import render_graph_mermaid
 
 class State(TypedDict):
     q: str
@@ -49,6 +50,8 @@ def main():
     llm = build_chat_model(temperature=0.2)
     outline_app = make_outline_graph(llm)
     answer_app = make_answer_graph(llm)
+    render_graph_mermaid(outline_app, "05_subgraph_pattern_outline")
+    render_graph_mermaid(answer_app, "05_subgraph_pattern_answer")
 
     q = "예산 3천만원으로 지역 커뮤니티 협업 관객개발 캠페인을 2주 안에 실행하는 계획"
     s: State = {"q": q, "outline": "", "answer": ""}

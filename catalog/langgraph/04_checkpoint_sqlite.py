@@ -16,6 +16,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 
 from app.core.llm_factory import build_chat_model
 from app.utils.console import header
+from catalog.langgraph._viz import render_graph_mermaid
 
 class State(TypedDict):
     topic: str
@@ -36,6 +37,7 @@ def main():
 
     saver = SqliteSaver.from_conn_string("/app/storage/langgraph_checkpoint.sqlite")
     app = g.compile(checkpointer=saver)
+    render_graph_mermaid(app, "04_checkpoint_sqlite")
 
     config = {"configurable": {"thread_id": "demo-thread"}}
     out1 = app.invoke({"topic": "LCEL", "answer": ""}, config=config)

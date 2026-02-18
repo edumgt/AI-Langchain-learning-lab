@@ -11,6 +11,7 @@ from rich import print
 from langgraph.graph import StateGraph, END
 from app.core.llm_factory import build_chat_model
 from app.utils.console import header
+from catalog.langgraph._viz import render_graph_mermaid
 
 class State(TypedDict):
     q: str
@@ -53,6 +54,7 @@ def main():
     g.add_edge("block", END)
 
     app = g.compile()
+    render_graph_mermaid(app, "03_guarded_graph")
     out = app.invoke({"q":"2주 안에 SNS 캠페인을 런칭하려면?", "allowed": True, "reason":"", "answer":""})
     print(out["answer"])
 

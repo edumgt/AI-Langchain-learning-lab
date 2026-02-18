@@ -19,6 +19,7 @@ from rich import print
 from langgraph.graph import StateGraph, END
 from app.core.llm_factory import build_chat_model
 from app.utils.console import header
+from catalog.langgraph._viz import render_graph_mermaid
 
 class State(TypedDict):
     q: str
@@ -78,6 +79,7 @@ def main():
     g.add_edge("block", END)
 
     app = g.compile()
+    render_graph_mermaid(app, "08_hitl_cli_pause")
     out = app.invoke({"q":"예산 3천만원으로 2주 관객개발 캠페인 실행계획 작성", "draft":"", "approved": False, "final":"", "reason":""})
     print("\n[bold]FINAL[/bold]\n", out["final"])
 

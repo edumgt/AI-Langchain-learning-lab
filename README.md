@@ -113,6 +113,9 @@ OPENAI_MODEL=gpt-4o-mini
 - `catalog/langgraph/02_agentic_loop_graph.py`
 - `catalog/langgraph/03_guarded_graph.py`
 
+> 참고: LangGraph 카탈로그는 실행 시 mermaid 그래프를 콘솔에 출력하고,
+> `.mmd` 파일을 `/app/storage/langgraph/` 아래에 저장합니다.
+
 ### VectorStore / Retriever 비교
 - `catalog/rag/05_vectorstore_compare_notes.md`
 - `catalog/rag/06_retriever_mmr.py`

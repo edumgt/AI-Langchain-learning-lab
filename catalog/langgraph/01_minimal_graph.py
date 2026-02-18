@@ -11,6 +11,7 @@ from langgraph.graph import StateGraph, END
 
 from app.core.llm_factory import build_chat_model
 from app.utils.console import header
+from catalog.langgraph._viz import render_graph_mermaid
 
 class State(TypedDict):
     topic: str
@@ -30,6 +31,7 @@ def main():
     g.add_edge("generate", END)
 
     app = g.compile()
+    render_graph_mermaid(app, "01_minimal_graph")
     out = app.invoke({"topic": "LangGraph", "answer": ""})
     print(out["answer"])
 
