@@ -95,11 +95,6 @@ OPENAI_MODEL=gpt-4o-mini
 
 ---
 
-## License
-MIT
-
----
-
 ## 4) v2 추가 카탈로그 (확장팩)
 
 ### LangGraph (워크플로우/상태 머신)
