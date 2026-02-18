@@ -25,6 +25,17 @@ LangChain의 기능을 **“카탈로그(기능별 독립 데모)”** 형태로
 cp .env.example .env
 docker compose up --build
 ```
+---
+```
+docker compose down -v
+docker compose build --no-cache
+docker compose up
+```
+
+---
+![alt text](image.png)
+
+---
 
 개별 데모 실행:
 

@@ -4,7 +4,8 @@ from pydantic import BaseModel, Field
 from typing import Any
 
 from langchain_classic.chains.query_constructor.schema import AttributeInfo
-from langchain.retrievers.self_query.base import SelfQueryRetriever
+from langchain_classic.retrievers.self_query.base import SelfQueryRetriever
+
 
 from app.core import settings
 from app.core.llm_factory import build_chat_model, build_embeddings

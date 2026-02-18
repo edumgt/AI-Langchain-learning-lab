@@ -12,7 +12,8 @@ from rich import print
 from typing import List
 
 from langchain_classic.chains.query_constructor.schema import AttributeInfo
-from langchain.retrievers.self_query.base import SelfQueryRetriever
+from langchain_classic.retrievers.self_query.base import SelfQueryRetriever
+
 from langchain_community.vectorstores import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 

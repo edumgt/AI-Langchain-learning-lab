@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.server.models import ChatRequest, ChatResponse, ApproveRequest, ApproveResponse
 from fastapi import UploadFile, File
+from fastapi.responses import RedirectResponse
 from app.server.metadata_extractor import build_sidecar_meta
 from app.server.self_query_parser import parse_self_query
 from app.server.index_queue import enqueue, read_jobs
@@ -70,7 +71,7 @@ def _upsert_doc(meta: dict):
 
 app = FastAPI(title="ArtBiz LangChain E2E", version="0.6.0")
 
-app.mount('/', StaticFiles(directory='/app/app/server/static', html=True), name='static')
+
 
 
 app.add_middleware(
@@ -160,186 +161,6 @@ def rag_self_query(payload: dict):
 
 
 
-@app.post("/artbiz/proposal")
-def artbiz_proposal(payload: dict):
-    """Generate sponsor proposal draft.
-
-    Modes:
-    - v13 default: LLM draft -> normalize_to_template (rule-based)
-    - v14: rewrite_mode='llm_sections' => LLM writes narrative sections, tables filled deterministically from TOOL_DATA
-
-    payload extras:
-      - rewrite_mode: 'llm_sections' | 'v13'
-      - normalize: bool (default true)
-      - save: bool, format: md|pdf|both
-      - tags, template_version, logo_path
-    """
-    sponsor_name = payload.get("sponsor_name","")
-    campaign_title = payload.get("campaign_title","")
-    budget_total_krw = int(payload.get("budget_total_krw") or 30000000)
-    weeks = int(payload.get("weeks") or 2)
-    org_type = payload.get("org_type","general")
-    auto_approve = payload.get("auto_approve")
-    if auto_approve is None:
-        auto_approve = (os.getenv("AUTO_APPROVE","true").lower() == "true")
-
-    rewrite_mode = (payload.get("rewrite_mode") or "llm_sections")  # default v14
-    normalize_flag = bool(payload.get("normalize", True))
-
-    # tool data
-    from app.tools.schemas import BudgetSplitRequest, TimelineRequest, SponsorshipPackageRequest
-    from app.tools.impl import budget_split, timeline, sponsorship_package
-    tool_data = {
-        "budget_split": budget_split(BudgetSplitRequest(total_krw=budget_total_krw)).model_dump(),
-        "timeline": timeline(TimelineRequest(start_date=str(datetime.date.today()), weeks=weeks, goal=campaign_title or "관객개발 캠페인")).model_dump(),
-        "sponsorship_package": sponsorship_package(SponsorshipPackageRequest(tier_count=3, total_target_krw=budget_total_krw, org_type=org_type)).model_dump(),
-    }
-
-    # RAG context
-    from app.core import settings
-    from app.core.rag_utils import ingest_dir, vectorstore
-    _ = ingest_dir(settings.DOCS_DIR, settings.CHROMA_PERSIST_DIR, collection="catalog_docs")
-    vs = vectorstore(settings.CHROMA_PERSIST_DIR, collection="catalog_docs")
-    docs = vs.similarity_search("후원 패키지 혜택 KPI 관객개발", k=2)
-    used_docs = [{"meta": d.metadata, "preview": d.page_content[:220]} for d in docs]
-
-    # generate draft
-    if rewrite_mode == "llm_sections":
-        narratives, tables = rewrite_sections_llm(
-            sponsor_name=sponsor_name,
-            campaign_title=campaign_title,
-            tool_data=tool_data,
-            used_docs=used_docs,
-            base_notes="",
-        )
-        draft_text = assemble_fixed_template_md(
-            sponsor_name=sponsor_name,
-            campaign_title=campaign_title,
-            narratives=narratives,
-            tables=tables,
-        )
-        # optional normalize (should be already compliant, but keep as safety)
-        if normalize_flag:
-            draft_text, structure_report = normalize_to_template(draft_text)
-        else:
-            structure_report = check_structure(draft_text)
-    else:
-        # fallback to v13 behavior (prompting)
-        from app.core.llm_factory import build_chat_model
-        from langchain_core.prompts import ChatPromptTemplate
-        import json as _json
-
-        context = "\n\n".join([f"SOURCE {i+1}: {d.page_content}" for i, d in enumerate(docs)])
-        llm = build_chat_model(temperature=0.2)
-        prompt = ChatPromptTemplate.from_messages([
-            ("system",
-             "너는 예술경영 후원 제안서 작성자다.\n"
-             "- TOOL_DATA의 숫자/구조를 그대로 활용해 제안서를 작성한다(추측 금지).\n"
-             "- CONTEXT에서 근거를 찾아 '근거' 섹션에 SOURCE 1~2를 반드시 인용한다.\n"
-             "- 마지막에 리스크 체크리스트 포함."),
-            ("human",
-             "SPONSOR: {sponsor_name}\nCAMPAIGN: {campaign_title}\n\nTOOL_DATA:\n{tool_data}\n\nCONTEXT:\n{context}\n\n"
-             "요청: 후원사 맞춤 제안서(요약, 목표, 패키지, KPI, 일정, 예산, 리스크) 작성"),
-        ])
-        draft = (prompt | llm).invoke({
-            "sponsor_name": sponsor_name,
-            "campaign_title": campaign_title,
-            "tool_data": _json.dumps(tool_data, ensure_ascii=False, indent=2),
-            "context": context
-        })
-        draft_text = getattr(draft, "content", str(draft))
-        if normalize_flag:
-            draft_text, structure_report = normalize_to_template(draft_text)
-        else:
-            structure_report = check_structure(draft_text)
-
-    # v15: ensure citations are placed within sections (footnote-like)
-    draft_text, citation_enforce_report = enforce_section_citations(draft_text, min_markers_per_section=1)
-    citation_placement_report = citation_placement_check(draft_text, min_total_markers=6)
-    # v16: convert SOURCE markers to footnotes [1]/[2] and map in appendix
-    draft_text, footnote_report = apply_footnotes(draft_text, used_docs)
-
-    # v14: consistency report (tables vs tool_data + sources)
-    consistency_report = consistency_overall(draft_text, tool_data)
-
-    # optionally save
-    save_flag = bool(payload.get("save", False))
-    save_format = (payload.get("format") or "both")
-    saved_version = None
-    if save_flag:
-        meta = save_markdown(
-            sponsor_name,
-            campaign_title,
-            draft_text,
-            tool_data=tool_data,
-            used_docs=used_docs,
-            tags=payload.get("tags") or [],
-            template_version=payload.get("template_version"),
-        )
-        if save_format in ["pdf", "both"]:
-            render_markdown_to_pdf(
-                draft_text,
-                meta["paths"]["pdf"],
-                title=f"{sponsor_name} - {campaign_title}",
-                meta={
-                    "sponsor_name": sponsor_name,
-                    "campaign_title": campaign_title,
-                    "date": datetime.date.today().isoformat(),
-                    "header_left": campaign_title or "ArtBiz Proposal",
-                    "logo_path": payload.get("logo_path"),
-                },
-            )
-        saved_version = {"id": meta["id"], "paths": meta["paths"]}
-
-    if not auto_approve:
-        from app.server.store import create_action
-        action = create_action({
-            "action_type": "proposal_publish",
-            "sponsor_name": sponsor_name,
-            "campaign_title": campaign_title,
-            "tool_data": tool_data,
-            "draft": draft_text,
-            "used_docs": used_docs,
-            "saved_version": saved_version,
-            "structure_report": structure_report,
-            "consistency_report": consistency_report,
-            "citation_enforce_report": citation_enforce_report,
-            "citation_placement_report": citation_placement_report,
-        "footnote_report": footnote_report,
-            "footnote_report": footnote_report,
-        })
-        return {
-            "ok": True,
-            "pending_action": action,
-            "message": "proposal draft created; approve to finalize",
-            "saved_version": saved_version,
-            "structure_report": structure_report,
-            "consistency_report": consistency_report,
-            "citation_enforce_report": citation_enforce_report,
-            "citation_placement_report": citation_placement_report,
-        "footnote_report": footnote_report,
-            "footnote_report": footnote_report,
-        }
-
-    return {
-        "ok": True,
-        "proposal": draft_text,
-        "tool_data": tool_data,
-        "used_docs": used_docs,
-        "saved_version": saved_version,
-        "structure_report": structure_report,
-        "consistency_report": consistency_report,
-            "citation_enforce_report": citation_enforce_report,
-            "citation_placement_report": citation_placement_report,
-        "footnote_report": footnote_report,
-            "footnote_report": footnote_report,
-        "rewrite_mode": rewrite_mode,
-        "citation_enforce_report": citation_enforce_report,
-        "citation_placement_report": citation_placement_report,
-        "footnote_report": footnote_report,
-            "footnote_report": footnote_report,
-    }
-
 @app.get("/artbiz/proposals")
 def artbiz_proposals():
     return {"ok": True, "items": list_versions(100)}
@@ -393,3 +214,11 @@ def approve(req: ApproveRequest):
 
     update_status(req.action_id, "rejected")
     return ApproveResponse(ok=True, message="rejected", action={"id": req.action_id, "status":"rejected"})
+
+# --- UI (Static) ---
+app.mount("/ui", StaticFiles(directory="/app/app/server/static", html=True), name="static")
+
+@app.get("/")
+def root():
+    return RedirectResponse("/ui")
+

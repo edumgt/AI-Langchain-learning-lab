@@ -1,97 +1,272 @@
 from __future__ import annotations
-import os, json
-from typing import Any, Literal
+
+import json
+import os
+from dataclasses import dataclass
+from typing import Any, Literal, Optional, Tuple, List, Dict
+
+from pydantic import BaseModel, Field
 
 from langchain_core.prompts import ChatPromptTemplate
-from pydantic import BaseModel, Field
 
 from app.core import settings
 from app.core.llm_factory import build_chat_model
 from app.core.rag_utils import ingest_dir, vectorstore
 from app.server.store import create_action
-from app.tools.schemas import BudgetSplitRequest, TimelineRequest, SponsorshipPackageRequest
+
+from app.tools.schemas import (
+    BudgetSplitRequest,
+    TimelineRequest,
+    SponsorshipPackageRequest,
+)
 from app.tools.impl import budget_split, timeline, sponsorship_package
 
 
+# ---------------------------------------------------------------------
+# Types
+# ---------------------------------------------------------------------
+
+Mode = Literal["chat", "rag", "plan"]
+
+
 class Route(BaseModel):
-    mode: Literal["chat","rag","plan"] = Field(description="처리 모드")
+    mode: Mode = Field(description="처리 모드: chat|rag|plan")
     need_approval: bool = Field(description="승인 필요 여부")
     action_type: str = Field(default="none", description="none|publish|email|budget_commit 등")
-    reason: str
+    reason: str = Field(default="", description="선택 근거")
+
+
+@dataclass
+class RAGResult:
+    answer: str
+    used_docs: List[Dict[str, Any]]
+
+
+@dataclass
+class PlanToolData:
+    data: Dict[str, Any]
+    notes: List[str]
+
+
+# ---------------------------------------------------------------------
+# Router
+# ---------------------------------------------------------------------
+
+_ROUTER_SYSTEM = (
+    "너는 예술경영 도우미 라우터다.\n"
+    "- 일반 설명/아이디어면 mode=chat\n"
+    "- 내부 문서 근거가 필요한 질문이면 mode=rag\n"
+    "- 실행 계획/예산/일정/체크리스트면 mode=plan\n"
+    "- 외부로 발행/공개(보도자료, 공지, 이메일 발송, 예산 확정 등)은 need_approval=true, action_type 지정\n"
+    "반드시 스키마(JSON)로만 답하라."
+)
+
 
 def route(q: str) -> Route:
+    """Route user question into chat/rag/plan with approval policy."""
     llm = build_chat_model(temperature=0).with_structured_output(Route)
-    p = ChatPromptTemplate.from_messages([
-        ("system",
-         "너는 예술경영 도우미 라우터다.\n"
-         "- 일반 설명/아이디어면 mode=chat\n"
-         "- 내부 문서 근거가 필요한 질문이면 mode=rag\n"
-         "- 실행 계획/예산/일정/체크리스트면 mode=plan\n"
-         "- 외부로 발행/공개(보도자료, 공지, 이메일 발송, 예산 확정 등)은 need_approval=true, action_type 지정\n"
-         "반드시 스키마로만 답하라."),
-        ("human","{q}")
-    ])
-    return (p | llm).invoke({"q": q})
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", _ROUTER_SYSTEM),
+            ("human", "{q}"),
+        ]
+    )
+    return (prompt | llm).invoke({"q": q})
 
-def answer_chat(q: str) -> tuple[str, list[dict]]:
+
+# ---------------------------------------------------------------------
+# Chat
+# ---------------------------------------------------------------------
+
+def answer_chat(q: str) -> Tuple[str, List[Dict[str, Any]]]:
     llm = build_chat_model(temperature=0.2)
-    resp = llm.invoke([{"role":"system","content":"너는 예술경영전문가 조력자다."},
-                       {"role":"user","content": q}])
-    return getattr(resp,"content",str(resp)), []
+    resp = llm.invoke(
+        [
+            {"role": "system", "content": "너는 예술경영전문가 조력자다. 과장하지 말고, 실행 가능한 조언을 준다."},
+            {"role": "user", "content": q},
+        ]
+    )
+    return getattr(resp, "content", str(resp)), []
 
-def answer_rag(q: str, top_k: int | None = None) -> tuple[str, list[dict]]:
-    _ = ingest_dir(settings.DOCS_DIR, settings.CHROMA_PERSIST_DIR, collection="catalog_docs")
+
+# ---------------------------------------------------------------------
+# RAG
+# ---------------------------------------------------------------------
+
+_RAG_SYSTEM = (
+    "너는 CONTEXT 기반으로만 답한다.\n"
+    "- CONTEXT에 근거가 없으면 '근거 부족'이라고 답한다.\n"
+    "- 마지막에 '근거' 섹션을 만들고 SOURCE 1~2를 짧게 인용/요약한다.\n"
+    "- 숫자/사실은 CONTEXT에서만 가져온다."
+)
+
+
+def _build_rag_context(docs: list[Any], max_sources: int = 2) -> str:
+    """Make a compact context with SOURCE markers."""
+    picked = docs[:max_sources]
+    parts = []
+    for i, d in enumerate(picked, start=1):
+        parts.append(f"SOURCE {i}:\n{d.page_content}")
+    return "\n\n".join(parts)
+
+
+def answer_rag(q: str, top_k: Optional[int] = None) -> Tuple[str, List[Dict[str, Any]]]:
+    # 1) Ensure docs are ingested
+    ingest_dir(settings.DOCS_DIR, settings.CHROMA_PERSIST_DIR, collection="catalog_docs")
+
+    # 2) Search
     vs = vectorstore(settings.CHROMA_PERSIST_DIR, collection="catalog_docs")
-    k = top_k or settings.TOP_K
+    k = int(top_k or settings.TOP_K)
     docs = vs.similarity_search(q, k=k)
-    context = "\n\n".join(d.page_content for d in docs)
 
+    # 3) Prompt
     llm = build_chat_model(temperature=0)
-    prompt = ChatPromptTemplate.from_messages([
-        ("system","너는 CONTEXT 기반으로만 답한다. CONTEXT에 없으면 '근거 부족'이라고 답한다. 마지막에 '근거' 섹션에 SOURCE 1~2를 인용."),
-        ("human","CONTEXT:\n{context}\n\nQ:\n{q}")
-    ])
-    resp = (prompt | llm).invoke({"context": "\n\n".join([f"SOURCE {i+1}: {d.page_content}" for i,d in enumerate(docs[:2])]),
-                                 "q": q})
-    used = [{"meta": d.metadata, "preview": d.page_content[:200]} for d in docs[:3]]
-    return getattr(resp,"content",str(resp)), used
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", _RAG_SYSTEM),
+            ("human", "CONTEXT:\n{context}\n\nQ:\n{q}"),
+        ]
+    )
 
-def answer_plan(q: str) -> tuple[str, list[dict]]:
-    """Tool-assisted plan.
+    context = _build_rag_context(docs, max_sources=2)
+    resp = (prompt | llm).invoke({"context": context, "q": q})
 
-    - 예산/타임라인/후원 패키지 같은 구조 데이터는 툴로 산출
-    - LLM은 TOOL_DATA를 기반으로 문서화
-    """
-    # heuristic tool calls (학습용): 질문에 키워드가 있으면 해당 툴을 실행
-    tool_data = {}
+    used = [
+        {"meta": getattr(d, "metadata", {}), "preview": (d.page_content or "")[:200]}
+        for d in docs[:3]
+    ]
+    return getattr(resp, "content", str(resp)), used
+
+
+# ---------------------------------------------------------------------
+# Plan (tool-assisted)
+# ---------------------------------------------------------------------
+
+_PLAN_SYSTEM = (
+    "너는 예술경영 실행 PM이다.\n"
+    "아래 TOOL_DATA(JSON)만 근거로 2주 실행계획을 작성해라.\n"
+    "- TOOL_DATA 밖 숫자는 추측하지 말라.\n"
+    "- 출력 형식: 1) 요약 2) 2주 실행계획 표 3) 체크리스트 4) 리스크/대응 5) 필요 승인 항목\n"
+)
+
+
+def _collect_tool_data(q: str) -> PlanToolData:
+    """Heuristic tool calls for learning/demo purposes."""
+    data: Dict[str, Any] = {}
+    notes: List[str] = []
+
+    # Budget
     if any(k in q for k in ["예산", "budget", "원", "KRW"]):
-        tool_data["budget_split"] = budget_split(BudgetSplitRequest(total_krw=30000000)).model_dump()
+        try:
+            data["budget_split"] = budget_split(
+                BudgetSplitRequest(total_krw=30_000_000)
+            ).model_dump()
+        except Exception as e:
+            notes.append(f"budget_split tool failed: {e!r}")
+
+    # Timeline
     if any(k in q for k in ["2주", "weeks", "일정", "timeline"]):
-        tool_data["timeline"] = timeline(TimelineRequest(start_date="2026-02-17", weeks=2, goal="관객개발 캠페인")).model_dump()
+        try:
+            data["timeline"] = timeline(
+                TimelineRequest(start_date="2026-02-17", weeks=2, goal="관객개발 캠페인")
+            ).model_dump()
+        except Exception as e:
+            notes.append(f"timeline tool failed: {e!r}")
+
+    # Sponsorship package
     if any(k in q for k in ["후원", "스폰서", "sponsor", "패키지"]):
-        tool_data["sponsorship_package"] = sponsorship_package(SponsorshipPackageRequest(tier_count=3, total_target_krw=30000000, org_type="general")).model_dump()
+        try:
+            data["sponsorship_package"] = sponsorship_package(
+                SponsorshipPackageRequest(
+                    tier_count=3,
+                    total_target_krw=30_000_000,
+                    org_type="general",
+                )
+            ).model_dump()
+        except Exception as e:
+            notes.append(f"sponsorship_package tool failed: {e!r}")
+
+    if not data:
+        notes.append(
+            "TOOL_DATA가 비어 있습니다. 질문에 예산/일정/후원 같은 키워드가 없거나, 추가 정보가 필요합니다."
+        )
+
+    return PlanToolData(data=data, notes=notes)
+
+
+def answer_plan(q: str) -> Tuple[str, List[Dict[str, Any]]]:
+    tool = _collect_tool_data(q)
+
+    tool_payload = {
+        "tool_data": tool.data,
+        "tool_notes": tool.notes,
+    }
+    tool_json = json.dumps(tool_payload, ensure_ascii=False, indent=2)
 
     llm = build_chat_model(temperature=0.2)
-    resp = llm.invoke([
-        {"role":"system","content":"너는 예술경영 실행 PM이다. 아래 TOOL_DATA를 근거로 2주 실행계획을 표/체크리스트/리스크로 구성해라. TOOL_DATA 밖 숫자는 추측하지 말라."},
-        {"role":"user","content": f"Q: {q}
 
-TOOL_DATA:
-{json.dumps(tool_data, ensure_ascii=False, indent=2)}"},
-    ])
-    return getattr(resp,"content",str(resp)), []
+    user_content = (
+        f"Q: {q}\n\n"
+        "요구사항:\n"
+        "- 2주 실행계획(주차/일자 단위)\n"
+        "- 역할(R&R)과 산출물\n"
+        "- 체크리스트\n"
+        "- 리스크와 대응\n\n"
+        "TOOL_DATA(JSON):\n"
+        f"{tool_json}\n"
+    )
 
-def run(q: str, mode: str | None = None, top_k: int | None = None, auto_approve: bool | None = None):
+    resp = llm.invoke(
+        [
+            {"role": "system", "content": _PLAN_SYSTEM},
+            {"role": "user", "content": user_content},
+        ]
+    )
+
+    # plan 모드는 tool metadata를 used_docs에 남겨서 UI에서 확인 가능하게
+    used = [{"meta": {"source": "tools"}, "preview": tool_json[:400]}]
+    return getattr(resp, "content", str(resp)), used
+
+
+# ---------------------------------------------------------------------
+# Public entry
+# ---------------------------------------------------------------------
+
+def run(
+    q: str,
+    mode: Optional[Mode] = None,
+    top_k: Optional[int] = None,
+    auto_approve: Optional[bool] = None,
+) -> Dict[str, Any]:
+    """
+    Entry point used by API.
+    Returns a stable response schema for UI consumers.
+    """
     r = route(q)
-    chosen = mode or r.mode
+    chosen: Mode = mode or r.mode
 
     # approval policy (env default)
     if auto_approve is None:
-        auto_approve = (os.getenv("AUTO_APPROVE","true").lower() == "true")
+        auto_approve = (os.getenv("AUTO_APPROVE", "true").lower() == "true")
+
     if r.need_approval and not auto_approve:
-        action = create_action({"q": q, "suggested_mode": chosen, "action_type": r.action_type, "reason": r.reason})
-        return {"answer": f"승인이 필요한 작업으로 분류되었습니다(action_type={r.action_type}). /approve 로 승인 후 진행하세요.",
-                "mode": chosen, "used_docs": [], "pending_action": action}
+        action = create_action(
+            {
+                "q": q,
+                "suggested_mode": chosen,
+                "action_type": r.action_type,
+                "reason": r.reason,
+            }
+        )
+        return {
+            "answer": (
+                f"승인이 필요한 작업으로 분류되었습니다(action_type={r.action_type}). "
+                "(/approve로 승인 후 진행)"
+            ),
+            "mode": chosen,
+            "used_docs": [],
+            "pending_action": action,
+        }
 
     if chosen == "chat":
         ans, used = answer_chat(q)
@@ -100,4 +275,9 @@ def run(q: str, mode: str | None = None, top_k: int | None = None, auto_approve:
     else:
         ans, used = answer_rag(q, top_k=top_k)
 
-    return {"answer": ans, "mode": chosen, "used_docs": used, "pending_action": None}
+    return {
+        "answer": ans,
+        "mode": chosen,
+        "used_docs": used,
+        "pending_action": None,
+    }
