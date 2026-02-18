@@ -3,13 +3,17 @@ requests>=2.31
 rich>=13.7
 pydantic>=2.6
 
-# LangChain core
-langchain>=0.2.10
-langchain-community>=0.2.10
-langchain-openai>=0.1.20
-langchain-text-splitters>=0.2.2
+# LangChain v1 (pin for stability)
+langchain==1.2.10
+langchain-core==1.2.13
+langchain-community==0.4.1
+langchain-openai==1.1.10
+langchain-text-splitters==0.3.11
 
-# Optional workflow lib
+# Legacy chains/retrievers split out in v1
+langchain-classic==1.0.1
+
+# Optional workflow lib (works with v1 ecosystem)
 langgraph>=0.2.35
 
 # RAG stack
@@ -20,6 +24,7 @@ tiktoken>=0.7.0
 faiss-cpu>=1.8.0
 rank-bm25>=0.2.2
 lark>=1.1.9
+
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 python-multipart>=0.0.9

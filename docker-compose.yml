@@ -7,9 +7,10 @@ services:
     env_file:
       - .env
     working_dir: /app
+    environment:
+      - PYTHONPATH=/app
     volumes:
-      - ./catalog:/app/catalog
-      - ./app:/app/app
+      - ./:/app
       - ./data:/app/data
       - ./storage:/app/storage
     command: ["python", "catalog/health/00_healthcheck.py"]
@@ -22,6 +23,8 @@ services:
     env_file:
       - .env
     working_dir: /app
+    environment:
+      - PYTHONPATH=/app
     volumes:
       - ./:/app
     command: uvicorn app.server.main:app --host 0.0.0.0 --port 8000

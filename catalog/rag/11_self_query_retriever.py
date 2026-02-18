@@ -11,7 +11,7 @@ from __future__ import annotations
 from rich import print
 from typing import List
 
-from langchain.chains.query_constructor.base import AttributeInfo
+from langchain_classic.chains.query_constructor.schema import AttributeInfo
 from langchain.retrievers.self_query.base import SelfQueryRetriever
 from langchain_community.vectorstores import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter

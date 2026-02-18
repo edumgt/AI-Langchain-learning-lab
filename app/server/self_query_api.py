@@ -3,7 +3,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from typing import Any
 
-from langchain.chains.query_constructor.base import AttributeInfo
+from langchain_classic.chains.query_constructor.schema import AttributeInfo
 from langchain.retrievers.self_query.base import SelfQueryRetriever
 
 from app.core import settings
