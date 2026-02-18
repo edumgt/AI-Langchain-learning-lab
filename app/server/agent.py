@@ -63,15 +63,42 @@ _ROUTER_SYSTEM = (
 
 
 def route(q: str) -> Route:
-    """Route user question into chat/rag/plan with approval policy."""
-    llm = build_chat_model(temperature=0).with_structured_output(Route)
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", _ROUTER_SYSTEM),
-            ("human", "{q}"),
-        ]
-    )
-    return (prompt | llm).invoke({"q": q})
+    """Route user question into chat/rag/plan with approval policy.
+
+    NOTE:
+    - Some local LLM providers (e.g., Ollama via langchain_community) do NOT implement
+      `with_structured_output()`. To keep the lab robust, we use a deterministic
+      keyword router instead of structured output.
+    """
+    q_l = (q or "").lower()
+
+    plan_keys = ["예산", "budget", "일정", "timeline", "계획", "체크리스트", "로드맵", "to-do", "실행", "weeks", "2주", "주간"]
+    rag_keys = ["근거", "출처", "문서", "자료", "규정", "가이드", "정책", "내부", "첨부", "업로드", "pdf", "보고서"]
+    approval_keys = ["발행", "게시", "보도자료", "공지", "대외", "메일", "발송", "예산 확정", "계약", "승인", "공개", "배포"]
+
+    # mode decision
+    if any(k in q for k in plan_keys) or any(k in q_l for k in plan_keys):
+        mode: Mode = "plan"
+        reason = "실행 계획/예산/일정 키워드 감지"
+    elif any(k in q for k in rag_keys) or any(k in q_l for k in rag_keys):
+        mode = "rag"
+        reason = "문서/근거/정책 키워드 감지"
+    else:
+        mode = "chat"
+        reason = "일반 상담/아이디어 요청으로 판단"
+
+    need_approval = any(k in q for k in approval_keys) or any(k in q_l for k in approval_keys)
+
+    action_type = "none"
+    if need_approval:
+        if "메일" in q or "email" in q_l:
+            action_type = "email"
+        elif "예산" in q and ("확정" in q or "commit" in q_l):
+            action_type = "budget_commit"
+        else:
+            action_type = "publish"
+
+    return Route(mode=mode, need_approval=need_approval, action_type=action_type, reason=reason)
 
 
 # ---------------------------------------------------------------------

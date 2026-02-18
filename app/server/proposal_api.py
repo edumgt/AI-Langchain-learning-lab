@@ -1,6 +1,6 @@
 from __future__ import annotations
 from fastapi import APIRouter
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, AliasChoices
 from typing import Literal
 
 from langchain_core.prompts import ChatPromptTemplate
@@ -12,12 +12,21 @@ from app.core.rag_utils import ingest_dir_meta, vectorstore
 router = APIRouter(prefix="/artbiz", tags=["artbiz"])
 
 class ProposalRequest(BaseModel):
-    sponsor_name: str = Field(min_length=1)
-    campaign_title: str = Field(min_length=1)
+    # accept both legacy(v1) and v2 payload keys
+    sponsor_name: str = Field(min_length=1, validation_alias=AliasChoices("sponsor_name","org_name"))
+    campaign_title: str = Field(min_length=1, validation_alias=AliasChoices("campaign_title","event_name"))
     org_type: Literal["museum","theatre","festival","foundation","gallery","general"] = "general"
-    budget_target_krw: int = Field(gt=0)
+
+    # v1: budget_target_krw, v2: budget_total_krw / total_krw
+    budget_target_krw: int = Field(gt=0, validation_alias=AliasChoices("budget_target_krw","budget_total_krw","total_krw"))
+
     constraints: list[str] = Field(default_factory=list)
-    need_approval: bool = True
+
+    # optional knobs (used by UI)
+    weeks: int = Field(default=2, ge=1, le=12)
+    auto_approve: bool | None = None
+    need_approval: bool = True  # kept for backward-compat
+
 
 class ProposalResponse(BaseModel):
     proposal_markdown: str
@@ -32,9 +41,23 @@ def proposal(req: ProposalRequest):
 
     # retrieve supporting docs
     q = f"{req.org_type} 후원 패키지 혜택 KPI 개인정보 보도자료 유의사항"
-    docs = vs.similarity_search(q, k=4)
+    try:
+        docs = vs.similarity_search(q, k=4)
+    except Exception as e:
+        # Common: embedding model missing in Ollama (e.g., nomic-embed-text)
+        # or vector DB not ready. We degrade gracefully and continue with empty context.
+        docs = []
+        # keep a short hint for the response
+        _retrieval_error = str(e)
 
     context = "\n\n".join([f"SOURCE {i+1}: {d.page_content}" for i, d in enumerate(docs[:2])])
+
+    if not docs:
+        context = context or ""
+        hint = ""
+        if '_retrieval_error' in locals():
+            hint = f"\n\n[RETRIEVAL_NOTE]\n- retrieval skipped: {_retrieval_error[:180]}"
+        context = (context + hint).strip()
 
     # risk checklist (deterministic)
     risks = [
@@ -57,18 +80,24 @@ def proposal(req: ProposalRequest):
         ("human",
          "SPONSOR:{sponsor}\nCAMPAIGN:{campaign}\nORG_TYPE:{org_type}\nBUDGET_TARGET_KRW:{budget}\n"
          "CONSTRAINTS:{constraints}\n\nCONTEXT:\n{context}\n\nRISKS:\n{risks}\n\n"
-         "요청: 1) 요약 2) 제안 구조(티어/혜택/KPI) 3) 실행 일정(2주) 4) 측정/리포트 5) 리스크 체크 6) 근거"),
+         "요청: 1) 요약 2) 제안 구조(티어/혜택/KPI) 3) 실행 일정({weeks}주) 4) 측정/리포트 5) 리스크 체크 6) 근거"),
     ])
 
-    resp = (prompt | llm).invoke({
+    try:
+      resp = (prompt | llm).invoke({
         "sponsor": req.sponsor_name,
         "campaign": req.campaign_title,
         "org_type": req.org_type,
         "budget": f"{req.budget_target_krw}",
         "constraints": ", ".join(req.constraints) if req.constraints else "없음",
         "context": context,
-        "risks": "\n".join([f"- {r}" for r in risks]),
-    })
+        "risks": "\\n".join([f"- {r}" for r in risks]),
+        "weeks": str(req.weeks),
+      })
+    except Exception as e:
+        # Ollama can time out on long generations; surface a clear message to the client.
+        from fastapi import HTTPException
+        raise HTTPException(status_code=504, detail=f"LLM timeout/error: {type(e).__name__}: {str(e)[:180]}")
 
     used = [{"meta": d.metadata, "preview": d.page_content[:200]} for d in docs[:3]]
     return ProposalResponse(proposal_markdown=getattr(resp,"content",str(resp)), risks=risks, used_docs=used)

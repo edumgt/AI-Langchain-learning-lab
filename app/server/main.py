@@ -1,5 +1,9 @@
 from __future__ import annotations
 import os
+import json
+import datetime
+from fastapi import Request
+from starlette.responses import RedirectResponse
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 
@@ -106,16 +110,44 @@ def tools_report(req: ReportRequest):
 
 
 @app.post("/docs/upload")
-async def docs_upload(file: UploadFile = File(...)):
-    os.makedirs(DOCS_DIR, exist_ok=True)
-    filename = os.path.basename(file.filename)
-    dest = os.path.join(DOCS_DIR, filename)
-    with open(dest, "wb") as f:
-        f.write(await file.read())
+async def docs_upload(request: Request):
+    """Upload one or many docs.
 
-    meta = build_sidecar_meta(dest)
-    _upsert_doc(meta)
-    return {"ok": True, "meta": meta}
+    Accepts both:
+    - field `file` (single)
+    - field `files` (multiple)  # UI에서 multiple 업로드용
+    """
+    os.makedirs(DOCS_DIR, exist_ok=True)
+    form = await request.form()
+
+    upload_files = []
+    f1 = form.get("file")
+    if f1 is not None:
+        upload_files.append(f1)
+
+    try:
+        f_list = form.getlist("files")  # type: ignore[attr-defined]
+        upload_files.extend(f_list or [])
+    except Exception:
+        pass
+
+    # filter only UploadFile-like objects
+    upload_files = [f for f in upload_files if hasattr(f, "filename") and hasattr(f, "read")]
+    if not upload_files:
+        raise HTTPException(status_code=422, detail="No files provided. Use form field 'file' or 'files'.")
+
+    saved = []
+    for uf in upload_files:
+        filename = os.path.basename(getattr(uf, "filename", "uploaded"))
+        dest = os.path.join(DOCS_DIR, filename)
+        with open(dest, "wb") as fp:
+            fp.write(await uf.read())
+
+        meta = build_sidecar_meta(dest)
+        _upsert_doc(meta)
+        saved.append(meta)
+
+    return {"ok": True, "saved": saved, "count": len(saved)}
 
 @app.get("/docs")
 def docs_list():
@@ -221,4 +253,3 @@ app.mount("/ui", StaticFiles(directory="/app/app/server/static", html=True), nam
 @app.get("/")
 def root():
     return RedirectResponse("/ui")
-

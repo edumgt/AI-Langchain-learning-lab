@@ -6,372 +6,257 @@
   <title>ArtBiz LangChain E2E</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
-
-<body class="bg-slate-50 text-slate-900">
-  <div class="min-h-screen">
-    <!-- Header -->
-    <header class="sticky top-0 z-10 border-b bg-white/80 backdrop-blur">
-      <div class="mx-auto max-w-5xl px-4 py-4 flex items-center justify-between">
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <div class="max-w-6xl mx-auto px-4 py-10">
+    <header class="flex flex-col gap-2 mb-8">
+      <div class="flex items-center gap-3">
+        <div class="h-10 w-10 rounded-2xl bg-slate-800/80 grid place-items-center shadow">
+          <span class="text-lg">🎭</span>
+        </div>
         <div>
-          <h1 class="text-2xl font-bold tracking-tight">ArtBiz LangChain E2E</h1>
-          <p class="text-sm text-slate-600">/chat · /rag/self-query · /docs/upload · /artbiz/proposal (학습용 클라이언트)</p>
+          <h1 class="text-2xl font-semibold tracking-tight">ArtBiz LangChain E2E</h1>
+          <p class="text-slate-400 text-sm">학습용 미니 클라이언트 — <span class="font-mono">/chat</span>, <span class="font-mono">/rag/self-query</span>, <span class="font-mono">/artbiz/proposal</span>, <span class="font-mono">/docs/upload</span></p>
         </div>
-        <div class="flex items-center gap-2">
-          <a class="text-sm px-3 py-2 rounded-lg border bg-white hover:bg-slate-50" href="/docs" target="_blank">Swagger (/docs)</a>
-          <button id="btn-health" class="text-sm px-3 py-2 rounded-lg border bg-white hover:bg-slate-50">API 상태</button>
-          <span id="health-badge" class="text-xs px-2 py-1 rounded-full bg-slate-200 text-slate-700">unknown</span>
-        </div>
+      </div>
+
+      <div class="flex flex-wrap gap-2 text-xs text-slate-400">
+        <span class="px-2 py-1 rounded-full bg-slate-800/60 border border-slate-700/60">API: same-origin</span>
+        <span class="px-2 py-1 rounded-full bg-slate-800/60 border border-slate-700/60">Ollama: docker network</span>
+        <span class="px-2 py-1 rounded-full bg-slate-800/60 border border-slate-700/60">Tailwind: CDN</span>
       </div>
     </header>
 
-    <main class="mx-auto max-w-5xl px-4 py-8 space-y-6">
+    <main class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- Left: Controls -->
+      <section class="rounded-2xl bg-slate-900/60 border border-slate-800 shadow p-5">
+        <h2 class="text-lg font-semibold mb-4">요청</h2>
 
-      <!-- Quick Help -->
-      <section class="rounded-2xl border bg-white shadow-sm">
-        <div class="p-5 space-y-2">
-          <div class="flex items-start justify-between gap-4">
-            <div>
-              <h2 class="text-lg font-semibold">사용 방법</h2>
-              <ul class="mt-2 text-sm text-slate-700 list-disc pl-5 space-y-1">
-                <li><span class="font-medium">Chat</span>: mode 선택 후 <span class="font-mono">/chat</span> 버튼 → <span class="font-mono">q</span>로 질의</li>
-                <li><span class="font-medium">Self Query</span>: <span class="font-mono">/rag/self-query</span> 버튼 → 문서 기반 필터/요약 실험</li>
-                <li><span class="font-medium">Docs Upload</span>: 파일 선택 후 업로드 → RAG 인덱싱 자료로 사용</li>
-                <li><span class="font-medium">Proposal</span>: 후원 제안서 초안 생성(현재 서버 스키마: <span class="font-mono">budget_target_krw</span>)</li>
-              </ul>
-            </div>
-            <div class="text-xs text-slate-500 leading-relaxed">
-              <div class="font-semibold text-slate-700">중요</div>
-              <div>이 페이지는 API 학습용입니다. 출력은 JSON 원문 그대로 표시합니다.</div>
-            </div>
+        <label class="block text-sm text-slate-300 mb-2">질문</label>
+        <textarea id="q" class="w-full min-h-[120px] rounded-xl bg-slate-950/60 border border-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-600 px-3 py-2 text-sm"
+          placeholder="예) 예산 3천만원으로 2주 관객개발 캠페인 실행 계획">예산 3천만원으로 2주 관객개발 캠페인 실행 계획</textarea>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+          <div class="flex flex-col gap-1">
+            <label class="text-sm text-slate-300">mode</label>
+            <select id="mode" class="rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-2 text-sm">
+              <option value="rag" selected>rag</option>
+              <option value="chat">chat</option>
+              <option value="plan">plan</option>
+            </select>
           </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-sm text-slate-300">top_k</label>
+            <input id="topk" type="number" value="4" min="1" max="20"
+              class="rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-2 text-sm"/>
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-sm text-slate-300">auto_approve</label>
+            <select id="autoApprove" class="rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-2 text-sm">
+              <option value="true" selected>true</option>
+              <option value="false">false</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap gap-2 mt-4">
+          <button onclick="doChat()" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-sm font-medium shadow">/chat</button>
+          <button onclick="doSelfQuery()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 active:bg-slate-900 text-sm font-medium border border-slate-700 shadow">/rag/self-query</button>
+          <button onclick="doProposal()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-sm font-medium shadow">/artbiz/proposal</button>
+        </div>
+
+        <hr class="border-slate-800 my-6"/>
+
+        <h3 class="text-md font-semibold mb-3">Docs Upload</h3>
+        <p class="text-xs text-slate-400 mb-3">
+          파일을 업로드하면 <span class="font-mono">/docs/upload</span>로 전송됩니다. (필드: <span class="font-mono">files</span>, multiple 지원)
+        </p>
+        <div class="flex flex-col md:flex-row gap-2 md:items-center">
+          <input id="files" type="file" multiple
+            class="block w-full text-sm text-slate-300 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-medium file:bg-slate-800 file:text-slate-100 hover:file:bg-slate-700"/>
+          <button onclick="doUpload()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 active:bg-slate-900 text-sm font-medium border border-slate-700 shadow">Upload</button>
+        </div>
+        <pre id="upload_out" class="mt-3 text-xs rounded-xl bg-slate-950/60 border border-slate-800 p-3 overflow-auto max-h-52"></pre>
+
+        <hr class="border-slate-800 my-6"/>
+
+        <h3 class="text-md font-semibold mb-3">Proposal Options</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div class="flex flex-col gap-1">
+            <label class="text-sm text-slate-300">sponsor_name</label>
+            <input id="sponsor" value="ACME Corp"
+              class="rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-2 text-sm"/>
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-sm text-slate-300">campaign_title</label>
+            <input id="campaign" value="Spring Festival" 
+              class="rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-2 text-sm"/>
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-sm text-slate-300">budget_total_krw</label>
+            <input id="budget" type="number" value="30000000" min="1"
+              class="rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-2 text-sm"/>
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-sm text-slate-300">weeks</label>
+            <input id="weeks" type="number" value="2" min="1" max="12"
+              class="rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-2 text-sm"/>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap gap-2 mt-4">
+          <label class="inline-flex items-center gap-2 text-sm text-slate-300">
+            <input id="save" type="checkbox" checked class="rounded border-slate-700 bg-slate-900"/>
+            save
+          </label>
+          <select id="format" class="rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-2 text-sm">
+            <option value="md" selected>md</option>
+            <option value="pdf">pdf</option>
+            <option value="both">both</option>
+          </select>
+          <select id="orgType" class="rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-2 text-sm">
+            <option value="general" selected>general</option>
+            <option value="festival">festival</option>
+            <option value="museum">museum</option>
+            <option value="theatre">theatre</option>
+            <option value="foundation">foundation</option>
+            <option value="gallery">gallery</option>
+          </select>
         </div>
       </section>
 
-      <!-- Chat / RAG -->
-      <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="rounded-2xl border bg-white shadow-sm">
-          <div class="p-5">
-            <div class="flex items-center justify-between">
-              <h2 class="text-lg font-semibold">Chat</h2>
-              <span class="text-xs text-slate-500">POST /chat</span>
-            </div>
-
-            <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-              <label class="block">
-                <span class="text-xs font-medium text-slate-600">mode</span>
-                <select id="mode" class="mt-1 w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-300">
-                  <option value="rag">rag</option>
-                  <option value="chat">chat</option>
-                  <option value="plan">plan</option>
-                </select>
-              </label>
-
-              <label class="block">
-                <span class="text-xs font-medium text-slate-600">top_k</span>
-                <input id="topk" type="number" value="4" min="1"
-                  class="mt-1 w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-300"/>
-              </label>
-
-              <label class="block">
-                <span class="text-xs font-medium text-slate-600">auto_approve</span>
-                <select id="autoApprove" class="mt-1 w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-300">
-                  <option value="null">server default</option>
-                  <option value="true">true</option>
-                  <option value="false">false</option>
-                </select>
-              </label>
-            </div>
-
-            <label class="block mt-4">
-              <span class="text-xs font-medium text-slate-600">q</span>
-              <textarea id="q" rows="4"
-                class="mt-1 w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-300">예산 3천만원으로 2주 관객개발 캠페인 실행 계획</textarea>
-            </label>
-
-            <div class="mt-4 flex flex-wrap gap-2">
-              <button id="btn-chat" class="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm hover:bg-slate-800">
-                /chat 실행
-              </button>
-              <button id="btn-selfq" class="px-4 py-2 rounded-xl border bg-white text-sm hover:bg-slate-50">
-                /rag/self-query 실행
-              </button>
-              <button id="btn-clear" class="px-4 py-2 rounded-xl border bg-white text-sm hover:bg-slate-50">
-                출력 지우기
-              </button>
-            </div>
-
-            <div class="mt-4">
-              <div class="flex items-center justify-between">
-                <div class="text-sm font-semibold">Response</div>
-                <div id="last-status" class="text-xs text-slate-500"></div>
-              </div>
-              <pre id="out" class="mt-2 max-h-[360px] overflow-auto rounded-xl bg-slate-950 text-slate-100 text-xs p-4">{
-  "hint": "여기에 /chat 또는 /rag/self-query 결과가 표시됩니다."
-}</pre>
-            </div>
+      <!-- Right: Output -->
+      <section class="rounded-2xl bg-slate-900/60 border border-slate-800 shadow p-5">
+        <div class="flex items-center justify-between gap-3">
+          <h2 class="text-lg font-semibold">Response</h2>
+          <div class="flex items-center gap-2">
+            <span id="statusDot" class="h-2.5 w-2.5 rounded-full bg-slate-500"></span>
+            <span id="statusText" class="text-xs text-slate-400">idle</span>
           </div>
         </div>
 
-        <!-- Docs Upload -->
-        <div class="rounded-2xl border bg-white shadow-sm">
-          <div class="p-5">
-            <div class="flex items-center justify-between">
-              <h2 class="text-lg font-semibold">Docs Upload</h2>
-              <span class="text-xs text-slate-500">POST /docs/upload</span>
-            </div>
+        <div class="mt-4">
+          <pre id="out" class="text-xs rounded-xl bg-slate-950/60 border border-slate-800 p-4 overflow-auto min-h-[520px]"></pre>
+        </div>
 
-            <p class="mt-2 text-sm text-slate-600">
-              서버 엔드포인트가 <span class="font-mono">file</span> 단일 필드를 요구하므로, 여러 파일 선택 시 <span class="font-medium">한 개씩 순차 업로드</span>합니다.
-            </p>
-
-            <div class="mt-4 flex flex-col gap-3">
-              <input id="files" type="file" multiple
-                class="block w-full text-sm file:mr-3 file:rounded-xl file:border-0 file:bg-slate-900 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-800"/>
-              <div class="flex flex-wrap gap-2">
-                <button id="btn-upload" class="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm hover:bg-slate-800">
-                  Upload
-                </button>
-                <button id="btn-docs-list" class="px-4 py-2 rounded-xl border bg-white text-sm hover:bg-slate-50">
-                  /docs 목록 보기
-                </button>
-              </div>
-            </div>
-
-            <div class="mt-4">
-              <div class="flex items-center justify-between">
-                <div class="text-sm font-semibold">Upload 결과</div>
-                <div id="upload-status" class="text-xs text-slate-500"></div>
-              </div>
-              <pre id="upload_out" class="mt-2 max-h-[360px] overflow-auto rounded-xl bg-slate-950 text-slate-100 text-xs p-4">{
-  "hint": "업로드 결과가 여기에 표시됩니다."
-}</pre>
-            </div>
-          </div>
+        <div class="mt-4 text-xs text-slate-400 leading-relaxed">
+          <p class="mb-1">팁</p>
+          <ul class="list-disc pl-5 space-y-1">
+            <li><span class="font-mono">/artbiz/proposal</span> 500이면 보통 <span class="font-mono">nomic-embed-text</span> 임베딩 모델 미설치 또는 LLM 타임아웃입니다.</li>
+            <li>Ollama 모델: <span class="font-mono">ollama pull llama3.1:8b</span>, <span class="font-mono">ollama pull nomic-embed-text</span></li>
+          </ul>
         </div>
       </section>
-
-      <!-- Proposal -->
-      <section class="rounded-2xl border bg-white shadow-sm">
-        <div class="p-5">
-          <div class="flex items-center justify-between">
-            <h2 class="text-lg font-semibold">Proposal</h2>
-            <span class="text-xs text-slate-500">POST /artbiz/proposal</span>
-          </div>
-
-          <p class="mt-2 text-sm text-slate-600">
-            현재 API 스키마는 <span class="font-mono">sponsor_name</span>, <span class="font-mono">campaign_title</span>,
-            <span class="font-mono">budget_target_krw</span>를 필수로 요구합니다. (422가 나면 필드명을 먼저 확인하세요)
-          </p>
-
-          <div class="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-            <label class="block">
-              <span class="text-xs font-medium text-slate-600">sponsor_name</span>
-              <input id="sponsor" value="ACME Corp"
-                class="mt-1 w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-300"/>
-            </label>
-
-            <label class="block md:col-span-2">
-              <span class="text-xs font-medium text-slate-600">campaign_title</span>
-              <input id="campaign" value="Spring Festival"
-                class="mt-1 w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-300"/>
-            </label>
-
-            <label class="block">
-              <span class="text-xs font-medium text-slate-600">budget_target_krw</span>
-              <input id="budget" type="number" value="30000000" min="1"
-                class="mt-1 w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-300"/>
-            </label>
-
-            <label class="block">
-              <span class="text-xs font-medium text-slate-600">org_type</span>
-              <select id="orgType" class="mt-1 w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-300">
-                <option value="general" selected>general</option>
-                <option value="festival">festival</option>
-                <option value="theatre">theatre</option>
-                <option value="museum">museum</option>
-                <option value="gallery">gallery</option>
-                <option value="foundation">foundation</option>
-              </select>
-            </label>
-
-            <label class="block md:col-span-2">
-              <span class="text-xs font-medium text-slate-600">constraints (선택)</span>
-              <input id="constraints" placeholder="예: 로고 노출 최소 2회, 굿즈 제작 불가"
-                class="mt-1 w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-300"/>
-              <div class="mt-1 text-xs text-slate-500">콤마(,)로 구분해서 입력하세요.</div>
-            </label>
-
-            <label class="flex items-center gap-2 md:col-span-1">
-              <input id="needApproval" type="checkbox" checked class="h-4 w-4 rounded border-slate-300"/>
-              <span class="text-sm text-slate-700">need_approval</span>
-            </label>
-
-            <div class="md:col-span-1 flex justify-end">
-              <button id="btn-proposal" class="w-full md:w-auto px-4 py-2 rounded-xl bg-slate-900 text-white text-sm hover:bg-slate-800">
-                Generate Proposal
-              </button>
-            </div>
-          </div>
-
-          <div class="mt-4">
-            <div class="flex items-center justify-between">
-              <div class="text-sm font-semibold">Proposal 결과</div>
-              <div id="proposal-status" class="text-xs text-slate-500"></div>
-            </div>
-            <pre id="proposal_out" class="mt-2 max-h-[420px] overflow-auto rounded-xl bg-slate-950 text-slate-100 text-xs p-4">{
-  "hint": "제안서 API 결과가 여기에 표시됩니다."
-}</pre>
-          </div>
-        </div>
-      </section>
-
-      <footer class="py-6 text-center text-xs text-slate-500">
-        © ArtBiz LangChain E2E · UI served from <span class="font-mono">/ui</span>
-      </footer>
     </main>
   </div>
 
 <script>
-  const $ = (id) => document.getElementById(id);
-
-  function pretty(obj){ return JSON.stringify(obj, null, 2); }
-
-  async function readJsonSafe(res){
-    const ct = (res.headers.get("content-type") || "").toLowerCase();
-    if (ct.includes("application/json")) return await res.json();
-    return { raw: await res.text() };
-  }
-
-  function setStatus(el, text){
-    if (!el) return;
-    el.textContent = text || "";
-  }
-
-  function setBadge(ok){
-    const b = $("health-badge");
-    if (!b) return;
-    b.className = "text-xs px-2 py-1 rounded-full " + (ok ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700");
-    b.textContent = ok ? "healthy" : "down";
+  function setStatus(state, msg){
+    const dot = document.getElementById('statusDot');
+    const text = document.getElementById('statusText');
+    text.textContent = msg || state;
+    dot.className = 'h-2.5 w-2.5 rounded-full ' + (
+      state === 'ok' ? 'bg-emerald-500' :
+      state === 'err' ? 'bg-rose-500' :
+      state === 'work' ? 'bg-amber-400' : 'bg-slate-500'
+    );
   }
 
   async function apiPostJson(path, body){
+    setStatus('work', 'requesting…');
     const res = await fetch(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    const data = await readJsonSafe(res);
-    return { ok: res.ok, status: res.status, data };
+    let data = null;
+    try { data = await res.json(); } catch(e){ data = { raw: await res.text() }; }
+    if(!res.ok){
+      setStatus('err', 'error');
+      throw { status: res.status, data };
+    }
+    setStatus('ok', 'ok');
+    return data;
   }
 
-  async function apiGet(path){
-    const res = await fetch(path);
-    const data = await readJsonSafe(res);
-    return { ok: res.ok, status: res.status, data };
+  function show(obj){
+    document.getElementById('out').textContent = JSON.stringify(obj, null, 2);
   }
-
-  // --- Actions ---
-  async function doHealth(){
-    // /health 가 있으면 우선 사용, 없으면 /docs로 대체 체크
-    let r = await apiGet("/health");
-    if (!r.ok) r = await apiGet("/docs");
-    setBadge(r.ok);
-    setStatus($("last-status"), `health: ${r.status}`);
-    return r.ok;
+  function showUpload(obj){
+    document.getElementById('upload_out').textContent = JSON.stringify(obj, null, 2);
   }
 
   async function doChat(){
-    const q = $("q").value;
-    const mode = $("mode").value;
-    const topk = parseInt($("topk").value || "0", 10);
-    const autoVal = $("autoApprove").value;
-    const auto_approve = autoVal === "null" ? null : (autoVal === "true");
-
-    const body = { q, mode, top_k: topk || null };
-    if (auto_approve !== null) body.auto_approve = auto_approve;
-
-    const r = await apiPostJson("/chat", body);
-    setStatus($("last-status"), `POST /chat → ${r.status}`);
-    $("out").textContent = pretty(r.data);
+    const q = document.getElementById('q').value;
+    const mode = document.getElementById('mode').value;
+    const topk = parseInt(document.getElementById('topk').value || '0', 10);
+    const autoApprove = document.getElementById('autoApprove').value === 'true';
+    try{
+      const data = await apiPostJson('/chat', { q, mode, top_k: topk || null, auto_approve: autoApprove });
+      show(data);
+    }catch(e){
+      show(e);
+    }
   }
 
   async function doSelfQuery(){
-    const q = $("q").value;
-    const topk = parseInt($("topk").value || "4", 10) || 4;
-    const r = await apiPostJson("/rag/self-query", { q, top_k: topk });
-    setStatus($("last-status"), `POST /rag/self-query → ${r.status}`);
-    $("out").textContent = pretty(r.data);
-  }
-
-  async function doUpload(){
-    const files = $("files").files;
-    if (!files || files.length === 0){
-      $("upload_out").textContent = pretty({ error: "파일을 선택하세요." });
-      return;
+    const q = document.getElementById('q').value;
+    const topk = parseInt(document.getElementById('topk').value || '4', 10);
+    try{
+      const data = await apiPostJson('/rag/self-query', { q, top_k: topk || 4 });
+      show(data);
+    }catch(e){
+      show(e);
     }
-
-    setStatus($("upload-status"), `uploading ${files.length} file(s)...`);
-    const results = [];
-
-    for (const f of files){
-      const fd = new FormData();
-      // server expects: file (single)
-      fd.append("file", f);
-
-      const res = await fetch("/docs/upload", { method: "POST", body: fd });
-      const data = await readJsonSafe(res);
-      results.push({ file: f.name, status: res.status, ok: res.ok, data });
-    }
-
-    setStatus($("upload-status"), `done (${results.filter(x=>x.ok).length}/${results.length} ok)`);
-    $("upload_out").textContent = pretty({ results });
-  }
-
-  async function doDocsList(){
-    const r = await apiGet("/docs");
-    setStatus($("upload-status"), `GET /docs → ${r.status}`);
-    $("upload_out").textContent = pretty(r.data);
   }
 
   async function doProposal(){
-    const sponsor_name = $("sponsor").value.trim();
-    const campaign_title = $("campaign").value.trim();
-    const budget_target_krw = parseInt($("budget").value || "0", 10);
-    const org_type = $("orgType").value;
-    const need_approval = $("needApproval").checked;
+    const sponsor = document.getElementById('sponsor').value;
+    const campaign = document.getElementById('campaign').value;
+    const budget = parseInt(document.getElementById('budget').value || '0', 10);
+    const weeks = parseInt(document.getElementById('weeks').value || '2', 10);
+    const save = document.getElementById('save').checked;
+    const format = document.getElementById('format').value;
+    const org_type = document.getElementById('orgType').value;
+    const autoApprove = document.getElementById('autoApprove').value === 'true';
 
-    const cRaw = ($("constraints").value || "").trim();
-    const constraints = cRaw ? cRaw.split(",").map(s => s.trim()).filter(Boolean) : [];
-
-    const body = { sponsor_name, campaign_title, org_type, budget_target_krw, constraints, need_approval };
-
-    const r = await apiPostJson("/artbiz/proposal", body);
-    setStatus($("proposal-status"), `POST /artbiz/proposal → ${r.status}`);
-    $("proposal_out").textContent = pretty(r.data);
-
-    // convenience: also mirror to main response box
-    setStatus($("last-status"), `proposal: ${r.status}`);
-    $("out").textContent = pretty(r.data);
+    try{
+      const data = await apiPostJson('/artbiz/proposal', {
+        sponsor_name: sponsor,
+        campaign_title: campaign,
+        budget_total_krw: budget,
+        weeks,
+        save,
+        format,
+        org_type,
+        auto_approve: autoApprove
+      });
+      show(data);
+    }catch(e){
+      show(e);
+    }
   }
 
-  // --- Bind events ---
-  $("btn-health").addEventListener("click", doHealth);
-  $("btn-chat").addEventListener("click", doChat);
-  $("btn-selfq").addEventListener("click", doSelfQuery);
-  $("btn-upload").addEventListener("click", doUpload);
-  $("btn-docs-list").addEventListener("click", doDocsList);
-  $("btn-proposal").addEventListener("click", doProposal);
-  $("btn-clear").addEventListener("click", () => {
-    $("out").textContent = pretty({ cleared: true });
-    $("upload_out").textContent = pretty({ cleared: true });
-    $("proposal_out").textContent = pretty({ cleared: true });
-    setStatus($("last-status"), "");
-    setStatus($("upload-status"), "");
-    setStatus($("proposal-status"), "");
-  });
-
-  // auto health check on load
-  doHealth();
+  async function doUpload(){
+    const input = document.getElementById('files');
+    const files = input.files;
+    if(!files || files.length === 0){
+      showUpload({ok:false, detail:'파일을 선택하세요.'});
+      return;
+    }
+    setStatus('work', 'uploading…');
+    const fd = new FormData();
+    for(const f of files){ fd.append('files', f); }  // multiple
+    const res = await fetch('/docs/upload', { method:'POST', body: fd });
+    let data = null;
+    try { data = await res.json(); } catch(e){ data = { raw: await res.text() }; }
+    if(!res.ok){
+      setStatus('err', 'upload error');
+      showUpload({status:res.status, data});
+      return;
+    }
+    setStatus('ok', 'uploaded');
+    showUpload(data);
+  }
 </script>
 </body>
 </html>
