@@ -14,6 +14,7 @@ from langgraph.graph import StateGraph, END
 
 from app.core.llm_factory import build_chat_model
 from app.utils.console import header
+from catalog.langgraph._viz import render_graph_mermaid
 
 class State(TypedDict):
     q: str
@@ -58,6 +59,7 @@ def main():
     g.add_edge("synth", END)
 
     app = g.compile()
+    render_graph_mermaid(app, "06_multi_role_agents")
     out = app.invoke({
         "q":"예산 3천만원, 지역 커뮤니티 협업, 2주 관객개발 캠페인 런칭 계획",
         "strategy":"","marketing":"","fundraising":"","ops":"","final":""

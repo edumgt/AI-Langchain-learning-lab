@@ -18,6 +18,7 @@ from langgraph.graph import StateGraph, END
 
 from app.core.llm_factory import build_chat_model
 from app.utils.console import header
+from catalog.langgraph._viz import render_graph_mermaid
 
 class State(TypedDict):
     goal: str
@@ -71,6 +72,7 @@ def main():
     g.add_conditional_edges("critique", decide, {"done": END, "loop": "execute"})
 
     app = g.compile()
+    render_graph_mermaid(app, "02_agentic_loop_graph")
     out = app.invoke({"goal":"예산 3천만원으로 2주 관객개발 SNS 캠페인 런칭", "plan":"", "draft":"", "critique":"", "ok": False, "iter": 0})
     print("\n[bold]FINAL DRAFT[/bold]\n", out["draft"])
     print("\n[bold]CRITIQUE[/bold]\n", out["critique"])
